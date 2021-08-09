@@ -332,16 +332,16 @@ namespace
 CodepointWidth CodepointWidthDetector::GetWidth(const std::wstring_view& glyph) const noexcept
 try
 {
+#pragma warning(suppress : 26494) // Variable 'codepoint' is uninitialized. Always initialize an object (type.5).
     uint32_t codepoint;
-#pragma warning(suppress : 26446) // Prefer to use gsl::at() instead of unchecked subscript operator (bounds.4).
     switch (glyph.size())
     {
     case 1:
-        codepoint = glyph[0];
+        codepoint = til::at(glyph, 0);
         break;
     case 2:
-        codepoint = (glyph[0] & 0x3FF) << 10;
-        codepoint |= glyph[1] & 0x3FF;
+        codepoint = (til::at(glyph, 0) & 0x3FF) << 10;
+        codepoint |= til::at(glyph, 1) & 0x3FF;
         codepoint += 0x10000;
         break;
     default:
@@ -457,5 +457,6 @@ void CodepointWidthDetector::SetFallbackMethod(std::function<bool(const std::wst
 // - <none>
 void CodepointWidthDetector::NotifyFontChanged() const noexcept
 {
+#pragma warning(suppress : 26447) // The function is declared 'noexcept' but calls function 'clear()' which may throw exceptions (f.6).
     _fallbackCache.clear();
 }
