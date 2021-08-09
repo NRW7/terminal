@@ -60,15 +60,12 @@ unsigned int FontInfoBase::GetCodePage() const noexcept
 // Arguments:
 // - buffer: the buffer into which to copy characters
 // - size: the size of buffer
-HRESULT FontInfoBase::FillLegacyNameBuffer(gsl::span<wchar_t> buffer) const noexcept
-try
+void FontInfoBase::FillLegacyNameBuffer(wchar_t (&buffer)[LF_FACESIZE]) const noexcept
 {
-    auto toCopy = std::min<size_t>(buffer.size() - 1, _faceName.size());
-    auto last = std::copy(_faceName.cbegin(), _faceName.cbegin() + toCopy, buffer.begin());
-    std::fill(last, buffer.end(), L'\0');
-    return S_OK;
+    const auto toCopy = std::min(std::size(buffer) - 1, _faceName.size());
+    auto last = std::copy_n(_faceName.data(), toCopy, &buffer[0]);
+    *last = L'\0';
 }
-CATCH_RETURN();
 
 // NOTE: this method is intended to only be used from the engine itself to respond what font it has chosen.
 void FontInfoBase::SetFromEngine(const std::wstring_view& faceName, const unsigned char family, const unsigned int weight, const bool fSetDefaultRasterFont) noexcept

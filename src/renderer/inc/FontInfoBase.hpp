@@ -34,7 +34,7 @@ public:
     unsigned int GetWeight() const noexcept;
     const std::wstring& GetFaceName() const noexcept;
     unsigned int GetCodePage() const noexcept;
-    HRESULT FillLegacyNameBuffer(gsl::span<wchar_t> buffer) const noexcept;
+    void FillLegacyNameBuffer(wchar_t (&buffer)[LF_FACESIZE]) const noexcept;
     bool IsTrueTypeFont() const noexcept;
     void SetFromEngine(const std::wstring_view& faceName, const unsigned char family, const unsigned int weight, const bool fSetDefaultRasterFont) noexcept;
     bool WasDefaultRasterSetFromEngine() const noexcept;
