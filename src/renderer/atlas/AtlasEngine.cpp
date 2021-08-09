@@ -425,26 +425,82 @@ CATCH_RETURN()
 
 [[nodiscard]] HRESULT AtlasEngine::GetProposedFont(const FontInfoDesired& fontInfoDesired, _Out_ FontInfo& fontInfo, const int dpi) noexcept
 {
-    getLocaleName(localeName);
-    const auto textFormat = _createTextFormat(fontInfoDesired.GetFaceName().c_str(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, fontInfoDesired.GetEngineSize().Y, localeName);
-
-    wil::com_ptr<IDWriteTextLayout> textLayout;
-    RETURN_IF_FAILED(_sr.dwriteFactory->CreateTextLayout(L"M", 1, textFormat.get(), FLT_MAX, FLT_MAX, textLayout.put()));
-
-    DWRITE_TEXT_METRICS metrics;
-    RETURN_IF_FAILED(textLayout->GetMetrics(&metrics));
-
     const auto scaling = GetScaling();
+    const auto coordFontRequested = fontInfoDesired.GetEngineSize();
+    wil::unique_hfont hfont;
+    COORD coordSize;
+
+    if (fontInfoDesired.IsDefaultRasterFont())
+    {
+        hfont.reset(static_cast<HFONT>(GetStockObject(OEM_FIXED_FONT)));
+        RETURN_HR_IF(E_FAIL, !hfont);
+    }
+    else if (fontInfoDesired.GetFaceName() == DEFAULT_RASTER_FONT_FACENAME)
+    {
+        // For future reference, here is the engine weighting and internal details on Windows Font Mapping:
+        // https://msdn.microsoft.com/en-us/library/ms969909.aspx
+        // More relevant links:
+        // https://support.microsoft.com/en-us/kb/94646
+
+        LOGFONTW lf;
+        lf.lfHeight = yolo_narrow<LONG>(std::ceil(coordFontRequested.Y * scaling));
+        lf.lfWidth = 0;
+        lf.lfEscapement = 0;
+        lf.lfOrientation = 0;
+        lf.lfWeight = fontInfoDesired.GetWeight();
+        lf.lfItalic = FALSE;
+        lf.lfUnderline = FALSE;
+        lf.lfStrikeOut = FALSE;
+        lf.lfCharSet = OEM_CHARSET;
+        lf.lfOutPrecision = OUT_RASTER_PRECIS;
+        lf.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+        lf.lfQuality = PROOF_QUALITY;
+        lf.lfPitchAndFamily = FIXED_PITCH | FF_MODERN;
+        wmemcpy(lf.lfFaceName, DEFAULT_RASTER_FONT_FACENAME, std::size(DEFAULT_RASTER_FONT_FACENAME));
+
+        hfont.reset(CreateFontIndirectW(&lf));
+        RETURN_HR_IF(E_FAIL, !hfont);
+    }
+
+    if (hfont)
+    {
+        wil::unique_hdc hdc(CreateCompatibleDC(nullptr));
+        RETURN_HR_IF(E_FAIL, !hdc);
+
+        DeleteObject(SelectObject(hdc.get(), hfont.get()));
+
+        SIZE sz;
+        RETURN_HR_IF(E_FAIL, !GetTextExtentPoint32W(hdc.get(), L"M", 1, &sz));
+
+        coordSize.X = yolo_narrow<SHORT>(sz.cx);
+        coordSize.Y = yolo_narrow<SHORT>(sz.cy);
+    }
+    else
+    {
+        getLocaleName(localeName);
+        const auto textFormat = _createTextFormat(
+            fontInfoDesired.GetFaceName().c_str(),
+            static_cast<DWRITE_FONT_WEIGHT>(fontInfoDesired.GetWeight()),
+            DWRITE_FONT_STYLE_NORMAL,
+            fontInfoDesired.GetEngineSize().Y,
+            localeName);
+
+        wil::com_ptr<IDWriteTextLayout> textLayout;
+        RETURN_IF_FAILED(_sr.dwriteFactory->CreateTextLayout(L"M", 1, textFormat.get(), FLT_MAX, FLT_MAX, textLayout.put()));
+
+        DWRITE_TEXT_METRICS metrics;
+        RETURN_IF_FAILED(textLayout->GetMetrics(&metrics));
+
+        coordSize.X = yolo_narrow<SHORT>(std::ceil(metrics.width * scaling));
+        coordSize.Y = yolo_narrow<SHORT>(std::ceil(metrics.height * scaling));
+    }
 
     fontInfo.SetFromEngine(
         fontInfoDesired.GetFaceName(),
         fontInfoDesired.GetFamily(),
         fontInfoDesired.GetWeight(),
         false,
-        COORD{
-            yolo_narrow<SHORT>(std::ceil(metrics.width * scaling)),
-            yolo_narrow<SHORT>(std::ceil(metrics.height * scaling)),
-        },
+        coordSize,
         fontInfoDesired.GetEngineSize());
     return S_OK;
 }
@@ -593,6 +649,7 @@ void AtlasEngine::ToggleShaderEffects()
     _api.fontSize = fontInfoDesired.GetEngineSize().Y;
     _api.fontName = fontInfo.GetFaceName();
     _api.fontWeight = yolo_narrow<u16>(fontInfo.GetWeight());
+
     WI_SetFlag(_invalidations, invalidation_flags::font);
 
     if (auto newSize = yolo_vec2<u16>(fontInfo.GetSize()); _api.cellSize != newSize)
@@ -759,6 +816,7 @@ void AtlasEngine::_createResources()
     {
         D3D11_BUFFER_DESC desc{};
         desc.ByteWidth = sizeof(const_buffer);
+        desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         THROW_IF_FAILED(_r.device->CreateBuffer(&desc, nullptr, _r.constantBuffer.put()));
     }
@@ -1057,8 +1115,5 @@ void AtlasEngine::_copyScratchpadCell(uint32_t scratchpadIndex, u16x2 target, ui
     box.right = (scratchpadIndex + 1) * _api.cellSize.x;
     box.bottom = _api.cellSize.y;
     box.back = 1;
-    // Specifying NO_OVERWRITE means that the system can assume that existing references to the surface that
-    // may be in flight on the GPU will not be affected by the update, so the copy can proceed immediately
-    // (avoiding either a batch flush or the system maintaining multiple copies of the resource behind the scenes).
     _r.deviceContext->CopySubresourceRegion1(_r.glyphBuffer.get(), 0, target.x, target.y, 0, _r.glyphScratchpad.get(), 0, &box, copyFlags);
 }
