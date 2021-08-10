@@ -227,6 +227,11 @@ static KeyChord _fromString(std::wstring_view wstr)
         }
     }
 
+    if (!vkey)
+    {
+        vkey = MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
+    }
+
     return KeyChord{ modifiers, vkey, scanCode };
 }
 
